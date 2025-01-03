@@ -32,7 +32,7 @@
 #include "hardware/uart.h"
 
 // --------------------------------------------------------------------
-//	MSX ‚Ì ãA‰ºA¶A‰EAAAB ‚Ìƒ{ƒ^ƒ“‚É‘Î‰‚·‚é GPIOƒsƒ“‚ÌŠJn”Ô†
+//	MSX ï¿½ï¿½ ï¿½ï¿½Aï¿½ï¿½ï¿½Aï¿½ï¿½ï¿½Aï¿½Eï¿½AAï¿½AB ï¿½Ìƒ{ï¿½^ï¿½ï¿½ï¿½É‘Î‰ï¿½ï¿½ï¿½ï¿½ï¿½ GPIOï¿½sï¿½ï¿½ï¿½ÌŠJï¿½nï¿½Ôï¿½
 //
 //	Start number of the GPIO pin corresponding to the Up, Down, Left, 
 //	Right, A, and B buttons on the MSX.
@@ -40,16 +40,16 @@
 #define MSX_BUTTON_PIN 2
 
 // --------------------------------------------------------------------
-//	MSX ‚©‚ç—ˆ‚é SELM†‚Ì GPIOƒsƒ“”Ô†
+//	MSX ï¿½ï¿½ï¿½ç—ˆï¿½ï¿½ SELï¿½Mï¿½ï¿½ï¿½ï¿½ GPIOï¿½sï¿½ï¿½ï¿½Ôï¿½
 //
 //	GPIO pin number of the SEL signal coming from the MSX
 //
 #define MSX_SEL_PIN 8
 
 // --------------------------------------------------------------------
-//	SELM†‚Ì˜_—
-//		0: •‰˜_— (MSX Joymega)
-//		1: ³˜_— (MegaDrive)
+//	SELï¿½Mï¿½ï¿½ï¿½Ì˜_ï¿½ï¿½
+//		0: ï¿½ï¿½ï¿½_ï¿½ï¿½ (MSX Joymega)
+//		1: ï¿½ï¿½ï¿½_ï¿½ï¿½ (MegaDrive)
 //
 //	Logic of SEL signal
 //		0: negative logic (MSX Joymega)
@@ -58,7 +58,7 @@
 #define MSX_SEL_LOGIC 0
 
 // --------------------------------------------------------------------
-//	X,Y²Š´“x
+//	X,Yï¿½ï¿½ï¿½ï¿½ï¿½x
 //
 //	X,Y axis sensitivity
 //
@@ -75,14 +75,38 @@
 // --------------------------------------------------------------------
 //	BUTTON MAP
 //
-#define A_BUTTON			GAMEPAD_BUTTON_C
-#define B_BUTTON			GAMEPAD_BUTTON_A
-#define C_BUTTON			GAMEPAD_BUTTON_B
-#define X_BUTTON			GAMEPAD_BUTTON_Z
-#define Y_BUTTON			GAMEPAD_BUTTON_X
-#define Z_BUTTON			GAMEPAD_BUTTON_Y
+#define A_BUTTON			GAMEPAD_BUTTON_X
+#define B_BUTTON			GAMEPAD_BUTTON_B
+#define C_BUTTON			GAMEPAD_BUTTON_A
+#define X_BUTTON			GAMEPAD_BUTTON_Y
+#define Y_BUTTON			GAMEPAD_BUTTON_C
+#define Z_BUTTON			GAMEPAD_BUTTON_Z
 #define START_BUTTON		GAMEPAD_BUTTON_TR
 #define MODE_BUTTON			GAMEPAD_BUTTON_TL
+
+// --------------------------------------------------------------------
+// GPIO BUTTON MAP
+//
+#define GPIO_UP_BUTTON		9
+#define GPIO_DOWN_BUTTON 	10
+#define GPIO_LEFT_BUTTON	11
+#define GPIO_RIGHT_BUTTON	12
+#define GPIO_A_BUTTON			13
+#define GPIO_B_BUTTON			14
+#define GPIO_C_BUTTON			15
+#define GPIO_X_BUTTON			16
+#define GPIO_Y_BUTTON			17
+#define GPIO_Z_BUTTON			18
+#define GPIO_START_BUTTON	19
+#define GPIO_MODE_BUTTON	20
+
+// TODO: Learn to use Bitwise operations to use a single uint32_t value for
+// all GPIO state values at once instead of sequentially polling all of them
+static uint32_t volatile gpio_buttons_state = 0x00;
+
+static uint8_t volatile joymega_gpio_matrix[5] = {
+	0x33, 0x3F, 0x03, 0x3F, 0x3F
+};
 
 // --------------------------------------------------------------------
 #define DEBUG_UART_ON 0
@@ -115,32 +139,34 @@ static uint8_t volatile joymega_matrix[5] = {
 
 static uint8_t report_count[ CFG_TUH_HID ];
 static tuh_hid_report_info_t report_info_arr[ CFG_TUH_HID ][ MAX_REPORT ];
-static int process_mode = 0;	//	0: joypad_mode, 1: mouse_mode
+// TODO: Analyse best values for each mode
+static int process_mode = 2;	//	0: joypad_mode, 1: mouse_mode, 2: gpio_mode
 
 // --------------------------------------------------------------------
 //	Mouse information
 
-//	USBƒ}ƒEƒX‚©‚ç‘—‚ç‚ê‚Ä‚­‚éî•ñ‚ğûW‚·‚é‚½‚ß‚Ì•Ï”
+//	USBï¿½}ï¿½Eï¿½Xï¿½ï¿½ï¿½ç‘—ï¿½ï¿½ï¿½Ä‚ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Wï¿½ï¿½ï¿½é‚½ï¿½ß‚Ì•Ïï¿½
 static volatile int16_t	mouse_delta_x = 0;
 static volatile int16_t	mouse_delta_y = 0;
 static volatile int		mouse_resolution = 0;
 static int32_t	mouse_button = 0;
 
-//	USBƒ}ƒEƒX‚©‚ç‘—‚ç‚ê‚Ä‚«‚½î•ñ‚ğŒ³‚Éu‘—M—pv‚É‰ÁH‚µ‚½’l‚ğŠi”[‚·‚é•Ï”
+//	USBï¿½}ï¿½Eï¿½Xï¿½ï¿½ï¿½ç‘—ï¿½ï¿½ï¿½Ä‚ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Éuï¿½ï¿½ï¿½Mï¿½pï¿½vï¿½É‰ï¿½ï¿½Hï¿½ï¿½ï¿½ï¿½ï¿½lï¿½ï¿½ï¿½iï¿½[ï¿½ï¿½ï¿½ï¿½Ïï¿½
 static volatile int32_t	mouse_current_data = 3;
 static volatile bool mouse_consume_data = false;
 
-//	Œ»İMSX‚Ö‘—M‚µ‚Ä‚¢‚é“à—e‚ğ•Û‚·‚é•Ï”
+//	ï¿½ï¿½ï¿½ï¿½MSXï¿½Ö‘ï¿½ï¿½Mï¿½ï¿½ï¿½Ä‚ï¿½ï¿½ï¿½ï¿½ï¿½eï¿½ï¿½Ûï¿½ï¿½ï¿½ï¿½ï¿½Ïï¿½
 static int32_t	mouse_sending_data = 0;
 
 //	LED Pattern
 static int led_state = 0;
-static const int led_pattern[5][8] = {
+static const int led_pattern[6][8] = {
 	{ 1, 0, 0, 0, 0, 0, 0, 0 },			//	Joypad mode
 	{ 1, 0, 1, 0, 0, 0, 0, 0 },			//	Mouse mode (normal)
 	{ 1, 0, 1, 0, 1, 0, 0, 0 },			//	Mouse mode (V half)
 	{ 1, 0, 1, 0, 0, 0, 1, 0 },			//	Mouse mode (normal2)
 	{ 1, 1, 0, 1, 0, 1, 0, 0 },			//	Mouse mode (V half2)
+	{ 1, 1, 1, 1, 1, 1, 0, 0 },			//	GPIO mode - No USB connected
 };
 
 // --------------------------------------------------------------------
@@ -150,7 +176,7 @@ static void initialization( void ) {
 	board_init();
 	tusb_init();
 
-	//	GPIO‚ÌM†‚ÌŒü‚«‚ğİ’è
+	//	GPIOï¿½ÌMï¿½ï¿½ï¿½ÌŒï¿½ï¿½ï¿½ï¿½ï¿½İ’ï¿½
 	for( i = 0; i < 6; i++ ) {
 		gpio_init( MSX_BUTTON_PIN + i );
 		gpio_set_dir( MSX_BUTTON_PIN + i, GPIO_OUT );
@@ -158,6 +184,21 @@ static void initialization( void ) {
 	gpio_init( MSX_SEL_PIN );
 	gpio_set_dir( MSX_SEL_PIN, GPIO_IN );
 	gpio_pull_up( MSX_SEL_PIN );
+
+	// GPIO for native gamepad
+	for( i = 0; i < 12; i++) {
+		gpio_init( GPIO_UP_BUTTON + i );
+		gpio_set_dir( GPIO_UP_BUTTON + i, GPIO_IN );
+		gpio_pull_up( GPIO_UP_BUTTON + i);
+	}
+
+	// DEBUG: LED for gpio gamepad mode
+	gpio_init(21);
+	gpio_set_dir(21, GPIO_OUT);
+	gpio_put(21, false);
+	gpio_init(22);
+	gpio_set_dir(22, GPIO_OUT);
+	gpio_put(22, false);
 }
 
 // --------------------------------------------------------------------
@@ -248,6 +289,91 @@ static void joypad_mode( void ) {
 	}
 }
 
+// TODO: Unify joypad_mode and gpio_mode functions into a single one
+// - They share the same logic except the states matrix
+//   to mask and send to the MSX joystick port
+static void gpio_mode( void ) {
+	static const uint32_t mask = 0x3F << MSX_BUTTON_PIN;
+	static const uint64_t sequence_trigger_us = 1100;		//	1100[usec]
+	static const uint64_t sequence_finish_us = 1600;		//	1600[usec]
+	static uint64_t start_time;
+
+	//	state 0
+	while( gpio_get( MSX_SEL_PIN ) == MSX_SEL_L ) {
+		gpio_put_masked( mask, (uint32_t)joymega_gpio_matrix[1] << MSX_BUTTON_PIN );
+	}
+	start_time = my_get_us();
+
+	//	state 1
+	while( gpio_get( MSX_SEL_PIN ) == MSX_SEL_H ) {
+		gpio_put_masked( mask, (uint32_t)joymega_gpio_matrix[0] << MSX_BUTTON_PIN );
+		if( (my_get_us() - start_time) > sequence_trigger_us ) {
+			break;
+		}
+	}
+	if( (my_get_us() - start_time) > sequence_trigger_us ) {
+		return;
+	}
+
+	//	state 2
+	while( gpio_get( MSX_SEL_PIN ) == MSX_SEL_L ) {
+		gpio_put_masked( mask, (uint32_t)joymega_gpio_matrix[1] << MSX_BUTTON_PIN );
+		if( (my_get_us() - start_time) > sequence_trigger_us ) {
+			break;
+		}
+	}
+	if( (my_get_us() - start_time) > sequence_trigger_us ) {
+		return;
+	}
+	//	state 3
+	while( gpio_get( MSX_SEL_PIN ) == MSX_SEL_H ) {
+		gpio_put_masked( mask, (uint32_t)joymega_gpio_matrix[0] << MSX_BUTTON_PIN );
+		if( (my_get_us() - start_time) > sequence_trigger_us ) {
+			break;
+		}
+	}
+	if( (my_get_us() - start_time) > sequence_trigger_us ) {
+		return;
+	}
+	//	state 4
+	while( gpio_get( MSX_SEL_PIN ) == MSX_SEL_L ) {
+		gpio_put_masked( mask, (uint32_t)joymega_gpio_matrix[1] << MSX_BUTTON_PIN );
+		if( (my_get_us() - start_time) > sequence_trigger_us ) {
+			break;
+		}
+	}
+	if( (my_get_us() - start_time) > sequence_trigger_us ) {
+		return;
+	}
+	//	state 5
+	while( gpio_get( MSX_SEL_PIN ) == MSX_SEL_H ) {
+		gpio_put_masked( mask, (uint32_t)joymega_gpio_matrix[2] << MSX_BUTTON_PIN );
+		if( (my_get_us() - start_time) > sequence_finish_us ) {
+			break;
+		}
+	}
+	if( (my_get_us() - start_time) > sequence_finish_us ) {
+		return;
+	}
+	//	state 6
+	while( gpio_get( MSX_SEL_PIN ) == MSX_SEL_L ) {
+		gpio_put_masked( mask, (uint32_t)joymega_gpio_matrix[3] << MSX_BUTTON_PIN );
+		if( (my_get_us() - start_time) > sequence_finish_us ) {
+			break;
+		}
+	}
+	if( (my_get_us() - start_time) > sequence_finish_us ) {
+		return;
+	}
+	//	state 7
+	while( gpio_get( MSX_SEL_PIN ) == MSX_SEL_H ) {
+		gpio_put_masked( mask, (uint32_t)joymega_gpio_matrix[4] << MSX_BUTTON_PIN );
+		if( (my_get_us() - start_time) > sequence_finish_us ) {
+			break;
+		}
+	}
+}
+
 // --------------------------------------------------------------------
 static uint32_t inline get_mouse_button_bits( void ) {
 	return (mouse_sending_data & 3);
@@ -256,10 +382,10 @@ static uint32_t inline get_mouse_button_bits( void ) {
 // --------------------------------------------------------------------
 static uint32_t inline get_mouse_nibble_bits_1st( void ) {
 
-	//	MSX‚Ö‘—‚Á‚Ä‚¢‚éÅ’†‚ÉXV‚³‚ê‚È‚¢‚æ‚¤‚ÉƒRƒs[‚·‚é
+	//	MSXï¿½Ö‘ï¿½ï¿½ï¿½ï¿½Ä‚ï¿½ï¿½ï¿½Å’ï¿½ï¿½ÉXï¿½Vï¿½ï¿½ï¿½ï¿½È‚ï¿½ï¿½æ‚¤ï¿½ÉƒRï¿½sï¿½[ï¿½ï¿½ï¿½ï¿½
 	mouse_sending_data = mouse_current_data;
 
-	//	1ŒÂ–Ú‚Ìƒf[ƒ^‚Í–³ˆÓ–¡ (ƒ{ƒ^ƒ“‚Ì‚İ)
+	//	1ï¿½Â–Ú‚Ìƒfï¿½[ï¿½^ï¿½Í–ï¿½ï¿½Ó–ï¿½ (ï¿½{ï¿½^ï¿½ï¿½ï¿½Ì‚ï¿½)
 	return get_mouse_button_bits();
 }
 
@@ -355,10 +481,20 @@ void response_core( void ) {
 
 	for( ;; ) {
 		if( process_mode == 0 ) {
+			// DEGUB: turn on LED on GPIO 22
+			gpio_put(21, true);
+			gpio_put(22, false);
 			joypad_mode();
 		}
-		else {
+		else if( process_mode == 1 ) {
 			mouse_mode();
+		}
+		else if( process_mode == 2 ){
+			// DEGUB: turn on LED on GPIO 21
+			gpio_put(21, false);
+			gpio_put(22, true);
+			// TODO: unify joypad_mode() and gpio_mode() into a single function with an input parameter (states matrix)
+			gpio_mode();
 		}
 	}
 }
@@ -374,8 +510,12 @@ void led_blinking_task(void) {
 	if( process_mode == 0 ) {
 		board_led_write( led_pattern[ 0 ][ led_state ] );
 	}
-	else {
+	else if( process_mode == 1) {
 		board_led_write( led_pattern[ mouse_resolution + 1 ][ led_state ] );
+	}
+	else {
+		// GPIO pattern
+		board_led_write( led_pattern[ 5 ][ led_state] );
 	}
 	led_state = (led_state + 1) & 7;
 }
@@ -393,11 +533,11 @@ static void process_gamepad_report( hid_gamepad_report_t const *p_report ) {
 	#endif
 
 	//	            b5,b4,b3,b2,b1,b0
-	//	matrix[0] = ã ‰º ‚k ‚k ‚` ‚r
-	//	matrix[1] = ã ‰º ¶ ‰E ‚a ‚b
-	//	matrix[2] = ‚k ‚k ‚k ‚k ‚` ‚r
-	//	matrix[3] = ‚y ‚x ‚w ‚l ‚g ‚g
-	//	matrix[4] = ‚g ‚g ‚g ‚g ‚` ‚r
+	//	matrix[0] = ï¿½ï¿½ ï¿½ï¿½ ï¿½k ï¿½k ï¿½` ï¿½r
+	//	matrix[1] = ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ ï¿½E ï¿½a ï¿½b
+	//	matrix[2] = ï¿½k ï¿½k ï¿½k ï¿½k ï¿½` ï¿½r
+	//	matrix[3] = ï¿½y ï¿½x ï¿½w ï¿½l ï¿½g ï¿½g
+	//	matrix[4] = ï¿½g ï¿½g ï¿½g ï¿½g ï¿½` ï¿½r
 
 	memcpy( matrix, default_matrix, sizeof(matrix) );
 	if( p_report->x <= LEFT_THRESHOLD ) {
@@ -467,11 +607,11 @@ static void process_joystick_report( my_hid_joystick_report_t const *p_report ) 
 	#endif
 
 	//	            b5,b4,b3,b2,b1,b0
-	//	matrix[0] = ã ‰º ‚k ‚k ‚` ‚r
-	//	matrix[1] = ã ‰º ¶ ‰E ‚a ‚b
-	//	matrix[2] = ‚k ‚k ‚k ‚k ‚` ‚r
-	//	matrix[3] = ‚y ‚x ‚w ‚l ‚g ‚g
-	//	matrix[4] = ‚g ‚g ‚g ‚g ‚` ‚r
+	//	matrix[0] = ï¿½ï¿½ ï¿½ï¿½ ï¿½k ï¿½k ï¿½` ï¿½r
+	//	matrix[1] = ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ ï¿½E ï¿½a ï¿½b
+	//	matrix[2] = ï¿½k ï¿½k ï¿½k ï¿½k ï¿½` ï¿½r
+	//	matrix[3] = ï¿½y ï¿½x ï¿½w ï¿½l ï¿½g ï¿½g
+	//	matrix[4] = ï¿½g ï¿½g ï¿½g ï¿½g ï¿½` ï¿½r
 
 	memcpy( matrix, default_matrix, sizeof(matrix) );
 	if( p_report->x <= LEFT_THRESHOLD_JOYSTICK ) {
@@ -529,6 +669,164 @@ static void process_joystick_report( my_hid_joystick_report_t const *p_report ) 
 }
 
 // --------------------------------------------------------------------
+// static void process_gpio_joypad() {
+// 	static const uint8_t default_matrix[5] = {
+// 		0x33, 0x3F, 0x03, 0x3F, 0x3F
+// 	};
+// 	uint8_t matrix[5];
+
+// 	#if DEBUG_UART_ON
+// 		printf( "process_gpio_joypad()\n" );
+// 	#endif
+
+// 	//	            b5,b4,b3,b2,b1,b0
+// 	//	matrix[0] = ï¿½ï¿½ ï¿½ï¿½ ï¿½k ï¿½k ï¿½` ï¿½r
+// 	//	matrix[1] = ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ ï¿½E ï¿½a ï¿½b
+// 	//	matrix[2] = ï¿½k ï¿½k ï¿½k ï¿½k ï¿½` ï¿½r
+// 	//	matrix[3] = ï¿½y ï¿½x ï¿½w ï¿½l ï¿½g ï¿½g
+// 	//	matrix[4] = ï¿½g ï¿½g ï¿½g ï¿½g ï¿½` ï¿½r
+
+// 	// DEGUB: turn on LED on GPIO 22
+// 	//gpio_put(22, true);
+
+// 	gpio_buttons_state = gpio_get_all();
+
+// 	memcpy( matrix, default_matrix, sizeof(matrix) );
+
+//	// D-PAD
+//  if( ((gpio_buttons_state << GPIO_LEFT_BUTTON) & 0x01) != 0 ) {
+// 		matrix[1] &= 0x37;
+// 	}
+// 	else if( ((gpio_buttons_state << GPIO_RIGHT_BUTTON) & 0x01) != 0 ) {
+// 		matrix[1] &= 0x3B;
+// 	}
+
+// 	if( ((gpio_buttons_state << GPIO_UP_BUTTON) & 0x01) != 0 ) {
+// 		matrix[0] &= 0x1F;
+// 		matrix[1] &= 0x1F;
+// 	}
+// 	else if( ((gpio_buttons_state << GPIO_DOWN_BUTTON) & 0x01) != 0 ) {
+// 		matrix[0] &= 0x2F;
+// 		matrix[1] &= 0x2F;
+// 	}
+
+// 	// // Buttons
+// 	// if( (gpio_buttons_state & GPIO_A_BUTTON) != 0 ) {
+// 	// 	matrix[0] &= 0x3D;
+// 	// 	matrix[2] &= 0x3D;
+// 	// 	matrix[4] &= 0x3D;
+// 	// }
+// 	// if( (gpio_buttons_state & GPIO_B_BUTTON) != 0 ) {
+// 	// 	matrix[1] &= 0x3D;
+// 	// }
+// 	// if( (gpio_buttons_state & GPIO_C_BUTTON) != 0 ) {
+// 	// 	matrix[1] &= 0x3E;
+// 	// }
+// 	// if( (gpio_buttons_state & GPIO_X_BUTTON) != 0 ) {
+// 	// 	matrix[3] &= 0x37;
+// 	// }
+// 	// if( (gpio_buttons_state & GPIO_Y_BUTTON) != 0 ) {
+// 	// 	matrix[3] &= 0x2F;
+// 	// }
+// 	// if( (gpio_buttons_state & GPIO_Z_BUTTON) != 0 ) {
+// 	// 	matrix[3] &= 0x1F;
+// 	// }
+// 	// if( (gpio_buttons_state & GPIO_START_BUTTON) != 0 ) {
+// 	// 	matrix[0] &= 0x3E;
+// 	// 	matrix[2] &= 0x3E;
+// 	// 	matrix[4] &= 0x3E;
+// 	// }
+// 	// if( (gpio_buttons_state & GPIO_MODE_BUTTON) != 0 ) {
+// 	// 	matrix[3] &= 0x3B;
+// 	// }
+
+// 	memcpy( (void*) joymega_gpio_matrix, matrix, sizeof(matrix) );
+
+// 	#if DEBUG_UART_ON
+// 		printf( "buttons = 0x%02X\r\n", (int)gpio_buttons_state );
+// 	#endif
+
+// 	// DEGUB: turn off LED on GPIO 22
+// 	//gpio_put(22, false);
+// }
+
+
+// TODO: Use Bitwise shift of the gpio_get_all return value instead of sequentially get all of the GPIO values 
+
+static void process_gpio_joypad() {
+	static const uint8_t default_matrix[5] = {
+		0x33, 0x3F, 0x03, 0x3F, 0x3F
+	};
+	uint8_t matrix[5];
+
+	#if DEBUG_UART_ON
+		printf( "process_gpio_joypad()\n" );
+	#endif
+
+	//	            b5,b4,b3,b2,b1,b0
+	//	matrix[0] = ï¿½ï¿½ ï¿½ï¿½ ï¿½k ï¿½k ï¿½` ï¿½r
+	//	matrix[1] = ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ ï¿½E ï¿½a ï¿½b
+	//	matrix[2] = ï¿½k ï¿½k ï¿½k ï¿½k ï¿½` ï¿½r
+	//	matrix[3] = ï¿½y ï¿½x ï¿½w ï¿½l ï¿½g ï¿½g
+	//	matrix[4] = ï¿½g ï¿½g ï¿½g ï¿½g ï¿½` ï¿½r
+
+	memcpy( matrix, default_matrix, sizeof(matrix) );
+
+	if( gpio_get(GPIO_LEFT_BUTTON) != true ) {
+		matrix[1] &= 0x37;
+	}
+	else if( gpio_get(GPIO_RIGHT_BUTTON) != true ) {
+		matrix[1] &= 0x3B;
+	}
+
+	if( gpio_get(GPIO_UP_BUTTON) != true ) {
+		matrix[0] &= 0x1F;
+		matrix[1] &= 0x1F;
+	}
+	else if( gpio_get(GPIO_DOWN_BUTTON) != true ) {
+		matrix[0] &= 0x2F;
+		matrix[1] &= 0x2F;
+	}
+
+	// Buttons
+	if( gpio_get(GPIO_A_BUTTON) != true ) {
+		matrix[0] &= 0x3D;
+		matrix[2] &= 0x3D;
+		matrix[4] &= 0x3D;
+	}
+	if( gpio_get(GPIO_B_BUTTON) != true ) {
+		matrix[1] &= 0x3D;
+	}
+	if( gpio_get(GPIO_C_BUTTON) != true ) {
+		matrix[1] &= 0x3E;
+	}
+	if( gpio_get(GPIO_X_BUTTON) != true ) {
+		matrix[3] &= 0x37;
+	}
+	if( gpio_get(GPIO_Y_BUTTON) != true ) {
+		matrix[3] &= 0x2F;
+	}
+	if( gpio_get(GPIO_Z_BUTTON) != true ) {
+		matrix[3] &= 0x1F;
+	}
+	if( gpio_get(GPIO_START_BUTTON) != true ) {
+		matrix[0] &= 0x3E;
+		matrix[2] &= 0x3E;
+		matrix[4] &= 0x3E;
+	}
+	if( gpio_get(GPIO_MODE_BUTTON) != true ) {
+		matrix[3] &= 0x3B;
+	}
+
+	memcpy( (void*) joymega_gpio_matrix, matrix, sizeof(matrix) );
+
+	#if DEBUG_UART_ON
+		printf( "buttons = 0x%02X\r\n", (int)gpio_buttons_state );
+	#endif
+
+}
+
+// --------------------------------------------------------------------
 static void process_mouse_report( hid_mouse_report_t const * report ) {
 	int16_t delta_x;
 	int16_t delta_y;
@@ -561,12 +859,12 @@ static void process_mouse_report( hid_mouse_report_t const * report ) {
 	last_mouse_button = mouse_button;
 	mouse_button = (report->buttons & (MOUSE_BUTTON_RIGHT | MOUSE_BUTTON_LEFT | MOUSE_BUTTON_MIDDLE));
 
-	//	’†ƒ{ƒ^ƒ“‚ª‰Ÿ‚³‚ê‚½‚ç‰ğ‘œ“x‚ğ•Ï‚¦‚é
+	//	ï¿½ï¿½ï¿½{ï¿½^ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ê‚½ï¿½ï¿½ğ‘œ“xï¿½ï¿½Ï‚ï¿½ï¿½ï¿½
 	if( !(last_mouse_button & MOUSE_BUTTON_MIDDLE) && (mouse_button & MOUSE_BUTTON_MIDDLE) ) {
 		mouse_resolution = (mouse_resolution + 1) & 3;
 	}
 
-	//	‘—M—pƒf[ƒ^‚ğì‚é
+	//	ï¿½ï¿½ï¿½Mï¿½pï¿½fï¿½[ï¿½^ï¿½ï¿½ï¿½ï¿½ï¿½
 	send_data = reverse_inv4[ mouse_button & 3 ];
 	switch( mouse_resolution ) {
 	default:
@@ -597,7 +895,7 @@ static void process_mouse_report( hid_mouse_report_t const * report ) {
 	}
 	send_data = send_data | (d1 << 4) | (d2 << 8) | (d3 << 12) | (d4 << 16);
 
-	//	”r‘¼§Œä‚Í–Ê“|‚È‚Ì‚ÅÈ—ª (^^;
+	//	ï¿½rï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Í–Ê“|ï¿½È‚Ì‚ÅÈ—ï¿½ (^^;
 	mouse_delta_x = delta_x;
 	mouse_delta_y = delta_y;
 	mouse_current_data = send_data;
@@ -612,12 +910,14 @@ int main(void) {
 	for( ;; ) {
 		tuh_task();
 		led_blinking_task();
+		// GPIO gamepad reading
+		process_gpio_joypad();
 	}
 	return 0;
 }
 
 // --------------------------------------------------------------------
-//	HID‚ªÚ‘±‚³‚ê‚½‚Æ‚«‚ÉŒÄ‚Ño‚³‚ê‚éƒR[ƒ‹ƒoƒbƒN
+//	HIDï¿½ï¿½ï¿½Ú‘ï¿½ï¿½ï¿½ï¿½ê‚½ï¿½Æ‚ï¿½ï¿½ÉŒÄ‚Ñoï¿½ï¿½ï¿½ï¿½ï¿½Rï¿½[ï¿½ï¿½ï¿½oï¿½bï¿½N
 //
 //	Callback to be called when a gamepad is connected.
 //
@@ -644,7 +944,7 @@ void tuh_hid_mount_cb( uint8_t dev_addr, uint8_t instance, uint8_t const* desc_r
 }
 
 // --------------------------------------------------------------------
-//	HID‚ªØ’f‚³‚ê‚½‚Æ‚«‚ÉŒÄ‚Ño‚³‚ê‚éƒR[ƒ‹ƒoƒbƒN
+//	HIDï¿½ï¿½ï¿½Ø’fï¿½ï¿½ï¿½ê‚½ï¿½Æ‚ï¿½ï¿½ÉŒÄ‚Ñoï¿½ï¿½ï¿½ï¿½ï¿½Rï¿½[ï¿½ï¿½ï¿½oï¿½bï¿½N
 //
 //	Callback to be called when the gamepad is disconnected.
 //
@@ -656,7 +956,7 @@ void tuh_hid_umount_cb( uint8_t dev_addr, uint8_t instance ) {
 		printf( "tuh_hid_umount_cb( %d, %d );\n", dev_addr, instance );
 	#endif
 
-	process_mode = 0;	//	joypad_mode
+	process_mode = 2;	//	gpio_mode
 }
 
 // --------------------------------------------------------------------
@@ -703,6 +1003,9 @@ void tuh_hid_report_received_cb( uint8_t dev_addr, uint8_t instance, uint8_t con
 		printf( "-- rpt_info->usage == %d\n", rpt_info->usage );
 	#endif
 	if( rpt_info->usage_page == HID_USAGE_PAGE_DESKTOP ) {
+		// DEBUG: turn on LED on GPIO 21 when an HID device is connected
+		gpio_put(21, true);
+		gpio_put(22, false);
 		if( rpt_info->usage == HID_USAGE_DESKTOP_GAMEPAD ) {
 			process_gamepad_report( (hid_gamepad_report_t const*) report );
 		}
