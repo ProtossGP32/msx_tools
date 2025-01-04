@@ -87,18 +87,23 @@
 // --------------------------------------------------------------------
 // GPIO BUTTON MAP
 //
-#define GPIO_UP_BUTTON		9
-#define GPIO_DOWN_BUTTON 	10
-#define GPIO_LEFT_BUTTON	11
-#define GPIO_RIGHT_BUTTON	12
-#define GPIO_A_BUTTON			13
-#define GPIO_B_BUTTON			14
-#define GPIO_C_BUTTON			15
-#define GPIO_X_BUTTON			16
-#define GPIO_Y_BUTTON			17
-#define GPIO_Z_BUTTON			18
-#define GPIO_START_BUTTON	19
-#define GPIO_MODE_BUTTON	20
+#define GPIO_FIRST_PIN		9
+
+#define GPIO_X_BUTTON			GPIO_FIRST_PIN			// GPIO 9
+#define GPIO_UP_BUTTON		GPIO_FIRST_PIN + 1	// GPIO 10
+#define GPIO_LEFT_BUTTON	GPIO_FIRST_PIN + 2	// GPIO 11
+#define GPIO_RIGHT_BUTTON	GPIO_FIRST_PIN + 3	// GPIO 12
+#define GPIO_DOWN_BUTTON 	GPIO_FIRST_PIN + 4	// GPIO 13
+#define GPIO_MODE_BUTTON	GPIO_FIRST_PIN + 5	// GPIO 14
+#define GPIO_START_BUTTON	GPIO_FIRST_PIN + 6	// GPIO 15
+
+#define GPIO_A_BUTTON			GPIO_FIRST_PIN + 7	// GPIO 16
+#define GPIO_B_BUTTON			GPIO_FIRST_PIN + 8	// GPIO 17
+#define GPIO_C_BUTTON			GPIO_FIRST_PIN + 9	// GPIO 18
+#define GPIO_Y_BUTTON			GPIO_FIRST_PIN + 10	// GPIO 19
+#define GPIO_Z_BUTTON			GPIO_FIRST_PIN + 11	// GPIO 20
+
+
 
 // TODO: Learn to use Bitwise operations to use a single uint32_t value for
 // all GPIO state values at once instead of sequentially polling all of them
@@ -187,9 +192,9 @@ static void initialization( void ) {
 
 	// GPIO for native gamepad
 	for( i = 0; i < 12; i++) {
-		gpio_init( GPIO_UP_BUTTON + i );
-		gpio_set_dir( GPIO_UP_BUTTON + i, GPIO_IN );
-		gpio_pull_up( GPIO_UP_BUTTON + i);
+		gpio_init( GPIO_FIRST_PIN + i );
+		gpio_set_dir( GPIO_FIRST_PIN + i, GPIO_IN );
+		gpio_pull_up( GPIO_FIRST_PIN + i);
 	}
 
 	// DEBUG: LED for gpio gamepad mode
